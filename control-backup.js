@@ -104,21 +104,14 @@ function game(){
                             size: mage.fireSize
                         };
                         
-                        // 初始化火球发射计数器（如果不存在）
-                        if (!mage.fireBallCount) {
-                            mage.fireBallCount = 0;
-                        }
-                        mage.fireBallCount++;
-                        console.log("🔥 火球发射次数:", mage.fireBallCount);
-                        
                         mage.timer[3] = setInterval(function(){
-                            if(mage.fireDamage < 1500){  // 降低最大伤害到1500
-                                mage.fireDamage += 75;   // 降低每次增长量到75
-                                mage.fireSize += 0.04;   // 降低火球大小增长
+                            if(mage.fireDamage < 1750){
+                                mage.fireDamage += 75;
+                                mage.fireSize += 0.05;
                             } else {
-                                mage.fireDamage = 1500;  // 设置最大伤害为1500
+                                mage.fireDamage = 1775;
                             }
-                            console.log("🔥 V技能伤害增长:", mage.fireDamage);
+                            console.log(mage.fireDamage);
                         },200);
                         
                         // 1秒后自动发送 v_fire
@@ -140,29 +133,13 @@ function game(){
                         mage.walkSpeed *= 2;
                         mage.jumpChance = 2;
                         
-                        // 使用缓存的参数生成火球，并应用伤害递减
+                        // 使用缓存的参数生成火球
                         if (mage._vCache) {
-                            let finalDamage = mage._vCache.damage;
-                            let finalSize = mage._vCache.size;
-                            
-                            // 应用伤害递减机制
-                            if (mage.fireBallCount === 2) {
-                                // 第二次火球伤害减少20%
-                                finalDamage = Math.floor(mage._vCache.damage * 0.8);
-                                finalSize = mage._vCache.size * 0.9;  // 稍微减小火球大小
-                                console.log("🔥 第二次火球: 伤害减少20% ->", finalDamage);
-                            } else if (mage.fireBallCount >= 3) {
-                                // 第三次及以后火球伤害减少30%
-                                finalDamage = Math.floor(mage._vCache.damage * 0.7);
-                                finalSize = mage._vCache.size * 0.85;  // 进一步减小火球大小
-                                console.log("🔥 第三次火球: 伤害减少30% ->", finalDamage);
-                            }
-                            
                             spawnFireBall(
                                 mage,
                                 mage._vCache.dir,
-                                finalDamage,
-                                finalSize
+                                mage._vCache.damage,
+                                mage._vCache.size
                             );
                             mage._vCache = null;
                         }
@@ -299,13 +276,11 @@ function game(){
                     self.prisoner = true;
                     new Cd(8,self.cD1,"X");
                     setTimeout(function(){
-                        if (!self.alive) return;
                         self.prisoner = false;
                         if (typeof mechanician !== "undefined" && mechanician) mechanician.cD[5] = true;
                         },1200);
-                    setTimeout(function(){if (!self.alive) return; self.cD[0] = true;},8000);
+                    setTimeout(function(){self.cD[0] = true;},8000);
                     setTimeout(function(){
-                        if (!self.alive) return;
                         self.man.css("background-image","url(img/mage.png)");
                         },500);
                 }
@@ -375,8 +350,6 @@ function game(){
         
         if(!self.cD[3] && self.cD[4]){
              self.man.css("background-image","url(img/mageFire.gif)");
-        } else {
-             self.man.css("background-image","url(img/mage.png)");
         }
         
         if(self.fallTrue){
@@ -595,107 +568,22 @@ function game(){
                 } else if(e.keyCode === 39){
                     you.press[1] = false;
                     clearInterval(you.timer[1]);
-                    } else if(e.keyCode === 190){
-                        if(you.cD[4]){
-                            safePlay(MechAudio[5]);
-                            you.cD[4] = false;
-                            
-                            console.log("💣 战士.技能: 投掷手雷");
-                            
-                            // 创建手雷元素
-                            let grenade = $('<div class="grenade">').css({
-                                position: 'absolute',
-                                left: (you.dir === "left" ? you.x - 30 : you.x + you.man.width()) + 'px',
-                                bottom: (you.y + you.man.height() * 0.5) + 'px',
-                                width: '45px',
-                                height: '45px',
-                                backgroundImage: 'url(img/steve.art/grenade' + randomNumberAtoB(3) + '.png)',
-                                backgroundSize: 'cover',
-                                zIndex: 999
-                            });
-                            
-                            $('body').append(grenade);
-                            
-                            // 手雷投掷动画
-                            let grenadeX = parseInt(grenade.css('left'));
-                            let grenadeY = parseInt(grenade.css('bottom'));
-                            let throwSpeed = you.grenadeSpeed * 0.5 + 10; // 基础速度 + 蓄力加成
-                            let throwDirection = you.dir === "left" ? -1 : 1;
-                            let gravity = 2;
-                            let velocityY = 15;
-                            
-                            let throwInterval = setInterval(function() {
-                                grenadeX += throwSpeed * throwDirection;
-                                grenadeY -= velocityY;
-                                velocityY -= gravity;
-                                
-                                grenade.css({
-                                    left: grenadeX + 'px',
-                                    bottom: grenadeY + 'px'
-                                });
-                                
-                                // 碰撞检测：魔法师
-                                if (typeof mage !== "undefined" && mage && st) {
-                                    let mageRect = mage.man[0].getBoundingClientRect();
-                                    let grenadeRect = grenade[0].getBoundingClientRect();
-                                    
-                                    if (grenadeRect.left < mageRect.right &&
-                                        grenadeRect.right > mageRect.left &&
-                                        grenadeRect.top < mageRect.bottom &&
-                                        grenadeRect.bottom > mageRect.top) {
-                                        
-                                        clearInterval(throwInterval);
-                                        
-                                        // 直接命中爆炸
-                                        createExplosion(grenadeX, grenadeY + 30);
-                                        grenade.remove();
-                                        
-                                        // 直接命中伤害
-                                        let directHitDamage = 200 + you.grenadeSpeed * 2; // 蓄力越久伤害越高
-                                        console.log("💥 手雷直接命中法师! 伤害:", directHitDamage);
-                                        
-                                        if (mage.shield > 0) {
-                                            mage.shield -= directHitDamage;
-                                        } else {
-                                            mage.health -= directHitDamage;
-                                        }
-                                        
-                                        // 击退效果
-                                        blood(mage, 1, 5, 3, (mageRect.left < grenadeRect.left) ? -3 : 3);
-                                        
-                                        // 音效
-                                        safePlay(MechAudio[0]);
-                                        let sound = randomNumberAtoB(3);
-                                        if (sound === 1) safePlay(MageAudio[2]);
-                                        else if (sound === 2) safePlay(MageAudio[3]);
-                                        else safePlay(MageAudio[4]);
-                                        
-                                        // 能量恢复
-                                        you.energy += Math.ceil(directHitDamage / 25);
-                                    }
-                                }
-                                
-                                // 碰撞检测：地面或边界
-                                if (grenadeY <= 100 || grenadeX < 0 || grenadeX > 1500) {
-                                    clearInterval(throwInterval);
-                                    
-                                    // 地面爆炸效果
-                                    createExplosion(grenadeX, grenadeY + 30);
-                                    grenade.remove();
-                                }
-                            }, 30);
-                            
-                            you.grenadeSpeed = 0;
-                            new Cd(8,you.cD3,".");
-                            clearInterval(you.timer[2]);
-                            setTimeout(function(){
-                                $("#speedTip").css("left", "-500px");
-                            },200);
-                            setTimeout(function(){
-                                you.cD[4] = true;
-                                you.cD[3] = true;
-                            },8000);
-                        }
+                } else if(e.keyCode === 190){
+                    if(you.cD[4]){
+                        safePlay(MechAudio[5]);
+                        you.cD[4] = false;
+                        comboShoot = new ComboShoot(you.grenadeSpeed);
+                        you.grenadeSpeed = 0;
+                        new Cd(8,you.cD3,".");
+                        clearInterval(you.timer[2]);
+                        setTimeout(function(){
+                            $("#speedTip").css("left", "-500px");
+                        },200);
+                        setTimeout(function(){
+                            you.cD[4] = true;
+                            you.cD[3] = true;
+                        },8000);
+                    }
                 }
             }
         });
@@ -957,21 +845,16 @@ function game(){
         if(mage.servant){
             enymyMonster();
         }
-        // 游戏结束检测 - 修复逻辑
-        if(mage.health <= 0 && st){
-            console.log("🎮 游戏结束: 魔法师失败");
-            safePlay(MechAudio[10]);
+        if(mage.health <= 0){
             setTimeout(function(){
-                safePlay(MageAudio[5]);
-            },2500);
-            death(mechanician);  // 魔法师死亡，战士胜利
-        } else if(window.mechanician && mechanician && mechanician.health <= 0 && st){
-            console.log("🎮 游戏结束: 战士失败");
+            safePlay(MageAudio[5]);},2500);
+            safePlay(MechAudio[10]);
+            if (window.mechanician) death(mechanician);
+        } else if(window.mechanician && mechanician && mechanician.health <= 0){
             safePlay(MageAudio[6]);
             setTimeout(function(){
-                safePlay(MechAudio[6]);
-            },2500);
-            death(mage);  // 战士死亡，魔法师胜利
+            safePlay(MechAudio[6]);},2500);
+            death(mage);
         }
     }
 
@@ -1063,132 +946,6 @@ function game(){
         bgm = $(".BGM"),
         roundAudio = $(".roundAudio");
    
-    // 火球生成函数
-    function spawnFireBall(mageObj, dir, damage, size) {
-        console.log("🔥 生成火球:", "方向:", dir, "伤害:", damage, "大小:", size);
-        
-        // 立即停止之前的火球并清理特效
-        if (mageObj.timer[2]) {
-            clearInterval(mageObj.timer[2]);
-            mageObj.timer[2] = null;
-            mageObj.meteor.css("bottom", "-1000px");
-            mageObj.meteor.css("display", "none");
-        }
-        
-        // 使用缓存的参数（如果存在）
-        let useDir = dir;
-        let useDamage = damage;
-        let useSize = size;
-        
-        if (mageObj._vCache) {
-            console.log("🔥 使用缓存参数:", mageObj._vCache);
-            useDir = mageObj._vCache.dir;
-            useDamage = mageObj._vCache.damage;
-            useSize = mageObj._vCache.size;
-        }
-        
-        // 计算火球起始位置 - 使用人物当前位置
-        const characterWidth = mageObj.man.width();
-        const characterHeight = mageObj.man.height();
-        
-        let startX, startY;
-        
-        if (useDir === "left") {
-            // 向左发射：从人物左侧前方
-            startX = mageObj.x - 60;
-            startY = mageObj.y + characterHeight * 0.6;  // 从人物上半身发射
-            mageObj.meteor.css("transform", "scaleX(-1)");
-        } else {
-            // 向右发射：从人物右侧前方
-            startX = mageObj.x + characterWidth - 20;
-            startY = mageObj.y + characterHeight * 0.6;
-            mageObj.meteor.css("transform", "");
-        }
-        
-        console.log("🔥 火球起始位置:", startX, startY, "人物位置:", mageObj.x, mageObj.y);
-        
-        // 立即显示火球
-        mageObj.meteor.css({
-            "left": startX + "px",
-            "bottom": startY + "px",
-            "width": (135 * useSize) + "px",
-            "height": (110 * useSize) + "px",
-            "display": "block"
-        });
-        
-        // 火球移动逻辑
-        let currentX = startX;
-        
-        var fireLoop = function() {
-            // 更新火球位置 - 提高移动速度减少延迟
-            if (useDir === "left") {
-                currentX -= 20;  // 向左移动，提高速度
-            } else {
-                currentX += 20;  // 向右移动，提高速度
-            }
-            
-            // 立即更新火球位置
-            mageObj.meteor.css("left", currentX + "px");
-            
-            // 检查对手是否存在
-            if (typeof mechanician === "undefined" || !mechanician) {
-                return;
-            }
-            
-            // 碰撞检测
-            if (collisionCheak(mechanician.man, mageObj.meteor, 203) === "coli") {
-                console.log("💥 火球命中!");
-                mechanician.health -= Math.floor(useDamage + 25);
-                clearInterval(mageObj.timer[2]);
-                mageObj.timer[2] = null;
-                mageObj.energy += Math.ceil(useDamage / 50);
-                
-                // 伤害效果
-                if (mageObj.dir === mechanician.dir) {
-                    blood(mechanician, 1, Math.ceil(useDamage / 40), Math.ceil(useDamage / 200), -Math.ceil(useDamage / 200));
-                } else {
-                    blood(mechanician, 1, Math.ceil(useDamage / 40), Math.ceil(useDamage / 200), Math.ceil(useDamage / 200));
-                }
-                
-                // 音效
-                let x = randomNumberAtoB(3);
-                if (x === 1) {
-                    safePlay(MechAudio[7]);
-                } else if (x === 2) {
-                    safePlay(MechAudio[8]);
-                } else {
-                    safePlay(MechAudio[9]);
-                }
-                safePlay(MageAudio[1]);
-                
-                // 隐藏火球并清理特效
-                mageObj.meteor.css("bottom", "-1000px");
-                mageObj.meteor.css("display", "none");
-                return;
-            }
-            
-            // 边界检测 - 超出屏幕时销毁火球
-            if (currentX < -300 || currentX > 1800) {
-                console.log("🔥 火球超出边界");
-                clearInterval(mageObj.timer[2]);
-                mageObj.timer[2] = null;
-                mageObj.meteor.css("bottom", "-1000px");
-                mageObj.meteor.css("display", "none");
-            }
-        };
-        
-        // 立即开始火球移动 - 使用更快的刷新率
-        mageObj.timer[2] = setInterval(fireLoop, 12);
-        
-        // 播放火球发射音效
-        safePlay(MageAudio[0]);
-        
-        // 清理缓存（如果使用了缓存）
-        if (mageObj._vCache) {
-            mageObj._vCache = null;
-        }
-    }
-    
     energy();
     $gg.hide();
     $start.hide();
@@ -1204,14 +961,10 @@ function game(){
     function ComboShoot(getSpeed) {//back3
         this.have = $("#iceShoot");
         this.valid = !!window.mechanician;
-        if (!this.valid) {
-            this.alive = false;
-            return this;
-        }
+        if (!this.valid) return;
         if (typeof mechanician === "undefined" || !mechanician) {
             this.valid = false;
-            this.alive = false;
-            return this;
+            return;
         }
         if (typeof mechanician === "undefined" || !mechanician) {
             this.x = 0;
@@ -1230,29 +983,10 @@ function game(){
         this.yspeed = -20;
         this.xacce = 0;
         this.yacce = 1;
-        this.effectNumber = randomNumberAtoB(3);//effectNumber is a random number from 0 to 3 (inclusive);
+        this.effectNumber = randomNumberAtoB(3);//effectNumber is a random number from 0 to 3;
 
         this.alive = true;
         this.degree = 0;
-        this.hasHit = false;  // 防止重复伤害
-        
-        // 攻击类型数组映射
-        this.attacks = [
-            this.attack0,
-            this.attack1,
-            this.attack2,
-            this.attack3
-        ];
-        
-        // 统一生命周期管理
-        this.destroy = function() {
-            if (!self.alive) return;
-            self.alive = false;
-            self.x = 0;
-            self.y = 0;
-            self.have.hide();
-        };
-        
         var self = this;
         self.have.show();
         if (typeof mechanician !== "undefined" && mechanician && mechanician.dir === "left") {
@@ -1293,14 +1027,11 @@ function game(){
             self.y -= 100;
             self.have.css("left", self.x + "px");
             self.have.css("top", self.y + "px");
-            
-            // 爆炸时立即造成伤害
-            if (collisionCheak(mage.man, self.have, 303) === "coli") {
-                self.hit("mage");
-            }
-            
             setTimeout(function() {
-                self.destroy();
+                self.alive = false;
+                self.x = 0;
+                self.y = 0;
+                self.have.hide();
                 self.have.css("transition", "none");
                 self.have.css("filter", "opacity(1)");
                 //changed: 30px to 60px, 60 to 30, 30 to 45
@@ -1383,26 +1114,29 @@ function game(){
         };
         
         this.hit = function(situation) {
-            // 防止重复伤害
-            if (situation === "mage" && self.hasHit) return;
-            
             if (situation === "ground" && st) {
                 for (let n = 0; n <= randomNumberAtoB(50); n +=1) {
                     fireContainer[fireContainer.length] = new TinyFire(self.x + 100, self.y + 70, fireContainer.length, "B");
                 }
             }
             if (situation === "mage" && st) {
-                self.hasHit = true;  // 标记已造成伤害
-                
-                // 使用数组映射执行攻击
-                let attackFunc = self.attacks[self.effectNumber];
-                if (attackFunc) attackFunc();
-                
+                if (self.effectNumber === 0) {
+                    self.attack0();
+                } else if (self.effectNumber === 1) {
+                    self.attack1();
+                } else if (self.effectNumber === 2) {
+                    self.attack2();
+                } else {
+                    self.attack3();
+                }
                 if (st) {
                     safePlay(MechAudio[0]);
                 }
                 if (typeof mechanician !== "undefined" && mechanician) mechanician.energy += 23;
-                self.destroy();
+                self.x = 0;
+                self.y = 0;
+                self.have.hide();
+                self.alive = false;
             }
             if (situation === "servant" && st) {
                 if (typeof mechanician !== "undefined" && mechanician) mechanician.energy += 15;
@@ -1471,7 +1205,9 @@ function game(){
         }
         loop();
         setTimeout(function() {
-            if (!self.alive) return;
+            if (!self.alive) {
+                return;
+            }
             self.boom();
             self.hit("ground");
         }, 2000);
@@ -1498,7 +1234,6 @@ function game(){
         
         
         setTimeout(function() {
-            if (!self.alive) return;
             self.disapare();
         }, 8000);
         
