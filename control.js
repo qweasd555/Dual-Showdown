@@ -54,10 +54,14 @@ function randomNumberAtoB(a) {
 //AI mode
 
 function game(){
-    var world,trun = 1,st = false;
+    var world,trun = 1;
+    
+    // ===== 全局基础定义（强制） =====
+    var ws;               // WebSocket 实例
+    var isHost = false;   // 房主 = true，其他 = false
+    var st = false;       // 战斗状态（由主机控制）
     
     // WebSocket 连接
-    var ws;
     if (!ws || ws.readyState === WebSocket.CLOSED) {
         ws = new WebSocket('ws://localhost:3001');
         
@@ -67,6 +71,58 @@ function game(){
         
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
+            console.log("📡 收到消息:", data);
+            
+            // ===== 主机结算层（Host Only）=====
+            // 非主机 → 主机请求
+            if (data.type === "action" && data.role === "mage" && data.action === "jump") {
+                if (!isHost) return; // 非主机忽略
+                
+                // 主机只同步状态，不执行跳跃（跳跃已在输入层执行过）
+                if (mage && mage.cD[5] && st) {
+                    console.log("🏠 主机收到跳跃请求，同步状态");
+                    
+                    // 主机广播结果给所有人（包含当前跳跃次数）
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "sync",
+                            role: "mage",
+                            action: "jump",
+                            jumpChance: mage.jumpChance // 同步跳跃次数状态
+                        }));
+                        console.log("📢 主机广播跳跃同步消息，跳跃次数:", mage.jumpChance);
+                    }
+                }
+                return;
+            }
+            
+            // ===== 同步播放层（sync）=====
+            // 主机 → 所有人同步
+            if (data.type === "sync" && data.role === "mage" && data.action === "jump") {
+                // 非主机执行跳跃（主机已在输入层执行过）
+                if (!isHost && mage && mage.cD[5] && st) {
+                    // 同步跳跃次数状态
+                    if (data.jumpChance !== undefined) {
+                        mage.jumpChance = data.jumpChance;
+                        console.log("🔄 同步跳跃次数:", mage.jumpChance);
+                    }
+                    // ✅ 非主机真正执行跳跃
+                    jumping(mage);
+                    console.log("🎮 非主机执行跳跃（同步）");
+                }
+                return;
+            }
+            
+            // 跳跃次数恢复同步
+            if (data.type === "sync" && data.role === "mage" && data.action === "jump_restore") {
+                if (mage && data.jumpChance !== undefined) {
+                    mage.jumpChance = data.jumpChance;
+                    console.log("🔄 收到跳跃次数恢复同步，跳跃次数:", mage.jumpChance);
+                }
+                return;
+            }
+            
+            // 保持原有的移动和技能同步逻辑
             if (data.type === "sync" && data.role === "mage") {
                 if (data.action === "move") {
                     if (data.dir === "left" && mage && !mage.press[0]) {
@@ -263,8 +319,43 @@ function game(){
                         }));
                     }
                 }
-            } else if(e.keyCode === 87){//jump - 保持不变
-                jumping(mage);
+            } else if(e.keyCode === 87){//jump - WebSocket同步版本
+                // ===== 输入层 =====
+                // 本地预测：立即执行 + 发送网络消息
+                if (!mage || !mage.cD[5] || !st) return;
+
+                // 检查跳跃次数是否足够
+                if (mage.jumpChance <= 0) {
+                    console.log("⚠️ 跳跃次数不足，无法跳跃");
+                    return;
+                }
+
+                // 主机：本地预测跳跃
+                if (isHost) {
+                    jumping(mage);
+                    console.log("🏠 主机本地执行跳跃（输入层），跳跃次数:", mage.jumpChance);
+                }
+
+                // 非主机：发请求给主机（不执行本地跳跃）
+                if (!isHost && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "action",
+                        role: "mage",
+                        action: "jump"
+                    }));
+                    console.log("📤 非主机发送跳跃动作消息");
+                }
+
+                // 主机：直接广播最终结果（包含当前跳跃次数）
+                if (isHost && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "sync",
+                        role: "mage",
+                        action: "jump",
+                        jumpChance: mage.jumpChance // 同步跳跃次数状态
+                    }));
+                    console.log("📢 主机广播跳跃同步消息，跳跃次数:", mage.jumpChance);
+                }
             } else if(e.keyCode === 68){//move right - WebSocket version
                 if(!self.press[1]){
                     // 发送 WebSocket 消息而不是直接移动
@@ -856,6 +947,7 @@ function game(){
             check.fallSpeed = check.jumpSpeed;
         } else if(check.jumpChance === 1){
             check.jumpChance -= 1;
+            check.fallTrue = true; // 添加这一行，确保进入跳跃状态
             check.fallSpeed = check.jumpSpeed;
         }
     }
@@ -887,21 +979,43 @@ function game(){
             jump.fallSpeed -= 1;
             jump.y += jump.fallSpeed;
             if(jump.fallSpeed < 0){
+                let jumpChanceRestored = false;
+                
                 if(jump.y <= 100){
                     jump.fallTrue = false;
-                    jump.jumpChance = 2;
+                    if (jump.jumpChance !== 2) {
+                        jump.jumpChance = 2;
+                        jumpChanceRestored = true;
+                    }
                     jump.fallSpeed = 0;
                     jump.y = 100;
                 } else if(jump.y >= 320 && jump.y <= 350 && jump.x <= 360){
                     jump.fallTrue = false;
-                    jump.jumpChance = 2;
+                    if (jump.jumpChance !== 2) {
+                        jump.jumpChance = 2;
+                        jumpChanceRestored = true;
+                    }
                     jump.fallSpeed = 0;
                     jump.y = 350;
                 } else if(jump.y >= 420 && jump.y <= 450 && jump.x > 1020 && jump.x < 1430){
                     jump.fallTrue = false;
-                    jump.jumpChance = 2;
+                    if (jump.jumpChance !== 2) {
+                        jump.jumpChance = 2;
+                        jumpChanceRestored = true;
+                    }
                     jump.fallSpeed = 0;
                     jump.y = 450;
+                }
+                
+                // 如果跳跃次数被恢复，且是主机，则广播状态同步
+                if (jumpChanceRestored && isHost && jump.name === "mage" && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "sync",
+                        role: "mage",
+                        action: "jump_restore",
+                        jumpChance: 2
+                    }));
+                    console.log("🔄 主机广播跳跃次数恢复同步");
                 }
             }
     }
