@@ -68,11 +68,23 @@ function game(){
         
         ws.onopen = function() {
             console.log('✅ WebSocket 连接已建立 to ws://localhost:3001');
+            
+            // 连接建立后，发送初始消息获取角色分配
+            ws.send(JSON.stringify({
+                type: "init",
+                timestamp: Date.now()
+            }));
         };
         
         ws.onmessage = function(event) {
             const data = JSON.parse(event.data);
             console.log("📡 收到消息:", data);
+            
+            // 处理角色分配
+            if (data.type === "init") {
+                isHost = data.isHost;
+                console.log("🎮 角色分配:", data.role, "是否主机:", isHost);
+            }
             
             // ===== 主机结算层（Host Only）=====
             // 非主机 → 主机请求
@@ -97,6 +109,28 @@ function game(){
                 return;
             }
             
+            // 机械师跳跃请求处理
+            if (data.type === "action" && data.role === "mechanician" && data.action === "jump") {
+                if (!isHost) return; // 非主机忽略
+                
+                // 主机只同步状态，不执行跳跃（跳跃已在输入层执行过）
+                if (mechanician && mechanician.cD[5] && st) {
+                    console.log("🏠 主机收到机械师跳跃请求，同步状态");
+                    
+                    // 主机广播结果给所有人（包含当前跳跃次数）
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "sync",
+                            role: "mechanician",
+                            action: "jump",
+                            jumpChance: mechanician.jumpChance // 同步跳跃次数状态
+                        }));
+                        console.log("📢 主机广播机械师跳跃同步消息，跳跃次数:", mechanician.jumpChance);
+                    }
+                }
+                return;
+            }
+            
             // ===== 同步播放层（sync）=====
             // 主机 → 所有人同步
             if (data.type === "sync" && data.role === "mage" && data.action === "jump") {
@@ -110,6 +144,22 @@ function game(){
                     // ✅ 非主机真正执行跳跃
                     jumping(mage);
                     console.log("🎮 非主机执行跳跃（同步）");
+                }
+                return;
+            }
+            
+            // 机械师跳跃同步
+            if (data.type === "sync" && data.role === "mechanician" && data.action === "jump") {
+                // 非主机执行跳跃（主机已在输入层执行过）
+                if (!isHost && mechanician && mechanician.cD[5] && st) {
+                    // 同步跳跃次数状态
+                    if (data.jumpChance !== undefined) {
+                        mechanician.jumpChance = data.jumpChance;
+                        console.log("🔄 同步机械师跳跃次数:", mechanician.jumpChance);
+                    }
+                    // ✅ 非主机真正执行跳跃
+                    jumping(mechanician);
+                    console.log("🎮 非主机执行机械师跳跃（同步）");
                 }
                 return;
             }
@@ -235,6 +285,31 @@ function game(){
                             mage.cD[3] = true;
                             mage.cD[4] = true;
                         },7000);
+                    }
+                }
+            }
+            
+            // 机械师移动同步逻辑
+            if (data.type === "sync" && data.role === "mechanician") {
+                if (data.action === "move") {
+                    if (data.dir === "left" && mechanician && !mechanician.press[0]) {
+                        mechanician.dir = "left";
+                        mechanician.press[0] = true;
+                        clearInterval(mechanician.timer[1]);
+                        mechanician.timer[0] = setInterval(function(){mechanician.x -= mechanician.walkSpeed;},20);
+                    } else if (data.dir === "right" && mechanician && !mechanician.press[1]) {
+                        mechanician.dir = "right";
+                        mechanician.press[1] = true;
+                        clearInterval(mechanician.timer[0]);
+                        mechanician.timer[1] = setInterval(function(){mechanician.x += mechanician.walkSpeed;},20);
+                    }
+                } else if (data.action === "stop") {
+                    if (data.dir === "left" && mechanician) {
+                        mechanician.press[0] = false;
+                        clearInterval(mechanician.timer[0]);
+                    } else if (data.dir === "right" && mechanician) {
+                        mechanician.press[1] = false;
+                        clearInterval(mechanician.timer[1]);
                     }
                 }
             }
@@ -592,21 +667,66 @@ function game(){
              //left up right down   37,38,39,40
             //u,i,o,p,l   85,73,79,80,76
         if(you.cD[5] && st){
-            if (e.keyCode === 37) {//move left
+            if (e.keyCode === 37) {//move left - WebSocket version
                 if(!you.press[0]) {
-                    you.dir = "left";
-                    you.press[0] = true;
-                    clearInterval(you.timer[1]);
-                    you.timer[0] = setInterval(function(){you.x -= you.walkSpeed;},20);
+                    // 发送 WebSocket 消息而不是直接移动
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "action",
+                            role: "mechanician",
+                            action: "move",
+                            dir: "left"
+                        }));
+                    }
                 }
-            } else if(e.keyCode === 38){//jump
-                jumping(mechanician);
-            } else if(e.keyCode === 39){//move right
+            } else if(e.keyCode === 38){//jump - WebSocket同步版本
+                // ===== 输入层 =====
+                // 本地预测：立即执行 + 发送网络消息
+                if (!mechanician || !mechanician.cD[5] || !st) return;
+
+                // 检查跳跃次数是否足够
+                if (mechanician.jumpChance <= 0) {
+                    console.log("⚠️ 机械师跳跃次数不足，无法跳跃");
+                    return;
+                }
+
+                // 主机：本地预测跳跃
+                if (isHost) {
+                    jumping(mechanician);
+                    console.log("🏠 主机本地执行机械师跳跃（输入层），跳跃次数:", mechanician.jumpChance);
+                }
+
+                // 非主机：发请求给主机（不执行本地跳跃）
+                if (!isHost && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "action",
+                        role: "mechanician",
+                        action: "jump"
+                    }));
+                    console.log("📤 非主机发送机械师跳跃动作消息");
+                }
+
+                // 主机：直接广播最终结果（包含当前跳跃次数）
+                if (isHost && ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "sync",
+                        role: "mechanician",
+                        action: "jump",
+                        jumpChance: mechanician.jumpChance // 同步跳跃次数状态
+                    }));
+                    console.log("📢 主机广播机械师跳跃同步消息，跳跃次数:", mechanician.jumpChance);
+                }
+            } else if(e.keyCode === 39){//move right - WebSocket version
                 if(!you.press[1]){
-                    you.dir = "right";
-                    you.press[1] = true;
-                    clearInterval(you.timer[0]);
-                    you.timer[1] = setInterval(function(){you.x += you.walkSpeed;},20);
+                    // 发送 WebSocket 消息而不是直接移动
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "action",
+                            role: "mechanician",
+                            action: "move",
+                            dir: "right"
+                        }));
+                    }
                 }
             } else if(e.keyCode === 191){//attack ,
                 if(you.cD[1]){
@@ -681,13 +801,27 @@ function game(){
         });
         $(document).keyup(function(e){
             if(you.cD[5] && st){
-                if(e.keyCode === 37){
-                    you.press[0] = false;
-                    clearInterval(you.timer[0]);
-                } else if(e.keyCode === 39){
-                    you.press[1] = false;
-                    clearInterval(you.timer[1]);
-                    } else if(e.keyCode === 190){
+                if(e.keyCode === 37){//stop left - WebSocket version
+                    // 发送 WebSocket 停止消息而不是直接停止
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "action",
+                            role: "mechanician",
+                            action: "stop",
+                            dir: "left"
+                        }));
+                    }
+                } else if(e.keyCode === 39){//stop right - WebSocket version
+                    // 发送 WebSocket 停止消息而不是直接停止
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "action",
+                            role: "mechanician",
+                            action: "stop",
+                            dir: "right"
+                        }));
+                    }
+                } else if(e.keyCode === 190){
                         if(you.cD[4]){
                             safePlay(MechAudio[5]);
                             you.cD[4] = false;
