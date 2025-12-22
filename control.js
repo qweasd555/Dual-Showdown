@@ -4,6 +4,7 @@
 // ===== 联机改造：操作执行器 =====
 
 // 安全音频播放函数
+//测试提交
 function safePlay(audio) {
     if (!audio) return;
     audio.play().catch(() => {});
